@@ -88,13 +88,19 @@ const FrontMatter = struct {
             } else if (areStringsEqual(field.name, "style")) {
                 front_matter.style = field.content;
             } else if (areStringsEqual(field.name, "created")) {
-                std.debug.print("TODO: date parsing\n", .{});
+                // yyyy-mm-dd
+                front_matter.created.year = std.fmt.parseInt(u32, field.content[0..4],0) catch 0;
+                front_matter.created.month = std.fmt.parseInt(u8, field.content[5..7],0) catch 0;
+                front_matter.created.day= std.fmt.parseInt(u8, field.content[8..],0) catch 0;
+                if (front_matter.created.year == 0 or front_matter.created.month == 0 or front_matter.created.day == 0){
+                    @panic("Wrong format for created field, use yyyy-mm-dd");
+                }
             } else {
                 std.debug.print("Unrecognized field.name : {s}\n", .{field.name});
             }
             //std.debug.print("field: {s} - {s}\n", .{field.name,field.content});
         }
-        std.debug.print("Front matter captured: {s}\n", .{front_matter.slug});
+        //std.debug.print("Front matter captured: {}\n", .{front_matter.created});
         return front_matter;
     }
 };
