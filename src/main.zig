@@ -1,11 +1,13 @@
 const std = @import("std");
-
+const Allocator = std.mem.Allocator;
+const full_width_image_format = "<figure class=\"fullwidth\"><img alt=\"{s}\" src=\"{s}\"></figure>";
+const image_format = "<figure><img alt=\"{s}\" src=\"{s}\"></figure>";
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const arena_allocator = init.arena.allocator();
     const file_contents = try std.Io.Dir.cwd().readFileAlloc(io, "example.md", arena_allocator, .unlimited);
     defer arena_allocator.free(file_contents);
-    blockSplitter(file_contents, file_contents.len,arena_allocator);
+    blockSplitter(file_contents, file_contents.len, arena_allocator);
 }
 //Front matter
 //title: An Example Using the Tufte Style
@@ -30,21 +32,20 @@ pub fn areStringsEqual(str_a: []const u8, str_b: []const u8) bool {
     }
     return true;
 }
-const Field = struct{
+const Field = struct {
     name: []u8,
     content: []u8,
     pub fn parseFieldLine(field_line: []u8) Field {
         var pos: usize = 0;
-        var field:Field = undefined;
+        var field: Field = undefined;
         while (pos < field_line.len and field_line[pos] != ':') : (pos += 1) {}
         field.name = field_line[0..pos];
         pos += 1;
         while (pos < field_line.len and field_line[pos] == ' ') : (pos += 1) {}
         const start = pos;
-        field.content= field_line[start..];
+        field.content = field_line[start..];
         return field;
     }
-
 };
 const FrontMatter = struct {
     title: []const u8,
@@ -89,10 +90,10 @@ const FrontMatter = struct {
                 front_matter.style = field.content;
             } else if (areStringsEqual(field.name, "created")) {
                 // yyyy-mm-dd
-                front_matter.created.year = std.fmt.parseInt(u32, field.content[0..4],0) catch 0;
-                front_matter.created.month = std.fmt.parseInt(u8, field.content[5..7],0) catch 0;
-                front_matter.created.day= std.fmt.parseInt(u8, field.content[8..],0) catch 0;
-                if (front_matter.created.year == 0 or front_matter.created.month == 0 or front_matter.created.day == 0){
+                front_matter.created.year = std.fmt.parseInt(u32, field.content[0..4], 0) catch 0;
+                front_matter.created.month = std.fmt.parseInt(u8, field.content[5..7], 0) catch 0;
+                front_matter.created.day = std.fmt.parseInt(u8, field.content[8..], 0) catch 0;
+                if (front_matter.created.year == 0 or front_matter.created.month == 0 or front_matter.created.day == 0) {
                     @panic("Wrong format for created field, use yyyy-mm-dd");
                 }
             } else {
@@ -102,6 +103,9 @@ const FrontMatter = struct {
         }
         //std.debug.print("Front matter captured: {}\n", .{front_matter.created});
         return front_matter;
+    }
+    pub fn compile(self:*FrontMatter,allocator:Allocator) []u8{
+        return std.fmt.allocPrint(allocator, " <head> <title>{s}</title> <meta property=\"og:type\" content=\"website\"> <meta property=\"og:url\" content=\"https://beppvis.works/blogs/{s}\"> <meta property=\"og:title\" content=\"{s}\"> <meta property=\"og:description\" content=\"{s}\"> <meta property=\"og:image\" content=\"{s}\"> <meta property=\"twitter:title\" content=\"{s}\"> <meta property=\"twitter:description\" content=\"{s}\"> <meta property=\"twitter:image\" content=\"{s}\"> <meta property=\"twitter:url\" content=\"https://beppvis.works/blogs/{s}\"> </head>",.{self.title,self.slug,self.title,self.description,self.image,self.title,self.description,self.image,self.slug}) catch @panic("Allocation Error: Front Matter compilation allocation failed");
     }
 };
 
@@ -129,10 +133,9 @@ const Scanner = struct {
         var end: usize = self.pos;
         var count: u8 = 1;
         while (!self.isAtEnd()) {
-            if (self.advance() == '-'){
+            if (self.advance() == '-') {
                 count += 1;
-            }
-            else {
+            } else {
                 count = 0;
             }
             if (count == 3) {
@@ -144,25 +147,25 @@ const Scanner = struct {
     }
 };
 
-pub const Block = struct{
+pub const Block = struct {
     type: enum {
         heading,
         section,
     },
-    head:[]u8,
-    content: [] u8,
+    head: []u8,
+    content: []u8,
 };
 
-pub fn blockSplitter(file_content: []u8, content_size: usize,allocator:std.mem.Allocator) void {
+pub fn blockSplitter(file_content: []u8, content_size: usize, allocator: Allocator) void {
     var self: Scanner = .{
         .pos = 0,
         .source = file_content,
         .size = content_size,
     };
-    var page:std.ArrayList(Block) = .empty;
+    var page: std.ArrayList(Block) = .empty;
     var front_matter: FrontMatter = undefined;
     var front_matter_captured = false;
-    var block_start:usize = 0;
+    var block_start: usize = 0;
 
     while (!self.isAtEnd()) {
         switch (self.advance()) {
@@ -179,51 +182,206 @@ pub fn blockSplitter(file_content: []u8, content_size: usize,allocator:std.mem.A
                     front_matter_captured = true;
                 }
             },
-            '#'=> { //heading checking
-                var count:u8 = 1;
+            '#' => { //heading checking
+                var count: u8 = 1;
                 while (self.peek() != '\n' and !self.isAtEnd()) {
-                    if (self.advance() != '#'){
+                    if (self.advance() != '#') {
                         break;
-                    }
-                    else {
+                    } else {
                         count += 1;
                     }
                 }
                 const start = self.pos;
-                while (self.advance() != '\n'){
-                }
-                if (count == 1){ // H1
+                while (self.advance() != '\n') {}
+                if (count == 1) { // H1
                     page.append(allocator, .{
-                        .content= "",
-                        .head = self.source[start..self.pos],
+                        .content = "",
+                        .head = self.source[start .. self.pos - 1], // ignoring the new line
                         .type = .heading,
                     }) catch unreachable;
-                }
-                else if (count == 2){ // H2 -> section
-                    if (page.getLastOrNull()) |block|{
+                } else if (count == 2) { // H2 -> section
+                    if (page.getLastOrNull()) |block| {
                         if (block.type == .section)
-                            page.items[page.items.len-1].content = self.source[block_start..start-3];
+                            page.items[page.items.len - 1].content = self.source[block_start .. start - 3];
                     }
-                    block_start = self.pos+1;
+                    block_start = self.pos + 1;
                     page.append(allocator, .{
-                        .content= self.source[self.pos..],
-                        .head = self.source[start..self.pos],
+                        .content = self.source[self.pos..],
+                        .head = self.source[start .. self.pos - 1], //ignoring the new line
                         .type = .section,
                     }) catch unreachable;
-
                 }
             },
             else => {},
         }
     }
 
-
-
-    for (0..page.items.len) |i|{
+    for (0..page.items.len) |i| {
         std.debug.print("block : {s} \n", .{page.items[i].head});
-        if (page.items[i].type  != .heading)
+        if (page.items[i].type != .heading)
             std.debug.print("content : {s} \n", .{page.items[i].content});
     }
 
+    var compiled_page = pageGenerator(page, allocator);
+    defer allocator.free(compiled_page);
+    const compiled_front_matter = front_matter.compile(allocator) ;
+    defer allocator.free(compiled_front_matter);
+    compiled_page = std.mem.concat(allocator, u8, &.{compiled_front_matter,compiled_page}) catch unreachable;
+    std.debug.print("Compiled page: {s}", .{compiled_page});
     defer page.deinit(allocator);
+}
+
+
+
+pub fn compileSection(block: Block, allocator: Allocator) []u8 {
+    var self: Scanner = .{
+        .pos = 0,
+        .source = block.content,
+        .size = block.content.len,
+    };
+    var out: []u8 = "";
+    while (!self.isAtEnd()) {
+        const char = self.advance();
+        switch (char) {
+            '`' => {
+                var count: u8 = 1;
+                var start = self.pos - 1;
+                while (self.peek() != '\n' and !self.isAtEnd()) {
+                    if (self.advance() == '`') {
+                        count += 1;
+                    } else {
+                        count = 0;
+                    }
+                    if (count == 3) break;
+                }
+                if (count != 3) {
+                    out = std.mem.concat(allocator, u8, &.{ out, self.source[start..self.pos] }) catch unreachable;
+                    continue;
+                }
+                // it is a code block
+                start = self.pos + 1;
+
+                while (!self.isAtEnd()) {
+                    if (self.advance() == '`') {
+                        count += 1;
+                    } else {
+                        count = 0;
+                    }
+                    if (count == 3) break;
+                }
+                if (count != 3) {
+                    out = std.mem.concat(allocator, u8, &.{ out, self.source[start..self.pos] }) catch unreachable;
+                    continue;
+                }
+
+                const end = self.pos - 4;
+                const code_block = std.fmt.allocPrint(allocator, "<pre><code>{s}</code></pre>", .{self.source[start..end]}) catch unreachable;
+                out = std.mem.concat(allocator, u8, &.{ out, code_block }) catch unreachable;
+            },
+            '[' => {
+                if (self.peek() != '^' ) {
+                    // its a link 
+                    const link_title_start = self.pos;
+                    var link_title_stop= self.pos;
+                    var link_source_start= self.pos;
+                    var link_source_end = self.pos;
+                    while (self.peek() != '\n' and !self.isAtEnd()) {
+                        const c = self.advance();
+                        if (c == ']') {
+                            link_title_stop= self.pos - 1;
+                        } else if (c == '(') {
+                            link_source_start = self.pos;
+                        } else if (c == ')') {
+                            link_source_end= self.pos - 1;
+                        }
+                    }
+                    if (link_source_start > link_source_end or link_title_start > link_title_stop or link_source_end > self.pos) @panic("Fomat Error: Link format is wrong");
+                    const link = std.fmt.allocPrint(allocator, "<a href=\"{s}\">{s}</a>", 
+                            .{self.source[link_source_start..link_source_end], self.source[link_title_start..link_title_stop]}) catch @panic("Format Error : Link alloc print failed");
+
+                    out = std.mem.concat(allocator, u8, &.{ out, link}) catch unreachable;
+                    continue;
+                }
+                // It is a side note
+                const side_note_start = self.pos+1;
+                if (side_note_start >= self.size) @panic("Format Error: Side note started, but no end was found");
+                // walking back to get a label for the side note 
+                const side_note_label_stop = self.pos-1;
+                var  i = self.pos-1;
+                while (i > 0):(i-=1){
+                    if (self.source[i] == ' ') break;
+                }
+                const side_note_label = self.source[i+1..side_note_label_stop];
+
+                var side_note_stop = side_note_start;
+
+                while (self.peek() != '\n' and !self.isAtEnd()){
+                    if (self.advance() == ']'){
+                        side_note_stop = self.pos-1;
+                    }
+                }
+
+                const side_note = std.fmt.allocPrint(allocator, "<label for=\"{s}\" class=\"margin-toggle sidenote-number\"> </label> <input type=\"checkbox\" id=\"{s}\" class=\"margin-toggle\"/> <span class=\"sidenote\"> {s} </span>", .{side_note_label,side_note_label,self.source[side_note_start..side_note_stop]}) catch unreachable;
+
+                out = std.mem.concat(allocator, u8, &.{ out, side_note}) catch unreachable;
+
+
+
+            },
+            '!' => {
+                if (self.peek() != '[') {
+                    out = std.mem.concat(allocator, u8, &.{ out, &.{char} }) catch unreachable;
+                    continue;
+                }
+                const alt_text_start = self.pos + 1;
+                var alt_text_end = self.pos;
+                var image_source_start = self.pos;
+                var image_source_end = self.pos;
+                while (self.peek() != '\n' and !self.isAtEnd()) {
+                    const c = self.advance();
+                    if (c == ']') {
+                        alt_text_end = self.pos - 1;
+                    } else if (c == '(') {
+                        image_source_start = self.pos;
+                    } else if (c == ')') {
+                        image_source_end = self.pos - 1;
+                    }
+                }
+                if (alt_text_start > alt_text_end or image_source_start > image_source_end or image_source_end > self.pos){
+                    @panic("Format Error: Image link format is wrong");
+                }
+                if ((alt_text_end - alt_text_start + 1) > 4 and areStringsEqual("full", self.source[alt_text_start .. alt_text_start + 4])) {
+                    const image = std.fmt.allocPrint(allocator, full_width_image_format, 
+                            .{ self.source[alt_text_start..alt_text_end], 
+                            self.source[image_source_start..image_source_end] }) catch @panic("Format Error: image alloc print failed");
+                    out = std.mem.concat(allocator, u8, &.{ out, image }) catch unreachable;
+                } else {
+                    const image = std.fmt.allocPrint(allocator, image_format, 
+                    .{ self.source[alt_text_start..alt_text_end], self.source[image_source_start..image_source_end] }) catch @panic("Format Error: image alloc print failed");
+                    out = std.mem.concat(allocator, u8, &.{ out, image }) catch unreachable;
+                }
+            },
+            else => {
+                out = std.mem.concat(allocator, u8, &.{ out, &.{char} }) catch unreachable;
+            },
+        }
+    }
+    return out;
+}
+
+pub fn pageGenerator(page: std.ArrayList(Block), allocator: Allocator) []u8 {
+    var out: []u8 = "";
+    for (page.items) |block| {
+        switch (block.type) {
+            .heading => {
+                const header = std.fmt.allocPrint(allocator, "<h1>{s}</h1>", .{block.head}) catch unreachable;
+                out = std.mem.concat(allocator, u8, &.{ out, header }) catch unreachable;
+            },
+            .section => {
+                const compiled_content = compileSection(block, allocator);
+                out = std.mem.concat(allocator, u8, &.{ out, compiled_content }) catch unreachable;
+            },
+        }
+    }
+    return out;
 }
