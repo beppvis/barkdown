@@ -1,13 +1,16 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const full_width_image_format = "<figure class=\"fullwidth\"><img alt=\"{s}\" src=\"{s}\"></figure>";
-const image_format = "<figure><img alt=\"{s}\" src=\"{s}\"></figure>";
+const full_width_image_format = "<figure class=\"fullwidth\"><img alt=\"{s}\" src=\"{s}\"></figure>\n";
+const image_format = "<figure><img alt=\"{s}\" src=\"{s}\"></figure>\n";
+const header_format = " <head>\n<title>{s}</title>\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:url\" content=\"https://beppvis.works/blogs/{s}\">\n<meta property=\"og:title\" content=\"{s}\">\n<meta property=\"og:description\" content=\"{s}\">\n<meta property=\"og:image\" content=\"{s}\">\n<meta property=\"twitter:title\" content=\"{s}\">\n<meta property=\"twitter:description\" content=\"{s}\">\n<meta property=\"twitter:image\" content=\"{s}\">\n<meta property=\"twitter:url\" content=\"https://beppvis.works/blogs/{s}\">\n</head>\n<body>\n<article>\n<h1>{s}</h1>\n<div class=\"header-info\"> \n<subtitle>{s} ◦ {s} </subtitle> \n<subtitle>by {s}</subtitle>\n</div>\n";
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const arena_allocator = init.arena.allocator();
     const file_contents = try std.Io.Dir.cwd().readFileAlloc(io, "example.md", arena_allocator, .unlimited);
     defer arena_allocator.free(file_contents);
-    blockSplitter(file_contents, file_contents.len, arena_allocator);
+    const page = blockSplitter(file_contents, file_contents.len, arena_allocator);
+    defer arena_allocator.free(page);
+    try std.Io.Dir.cwd().writeFile(io,.{.data = page,.sub_path = "example.html",.flags = .{}});
 }
 //Front matter
 //title: An Example Using the Tufte Style
@@ -52,7 +55,7 @@ const FrontMatter = struct {
     author: []const u8,
     description: []const u8,
     image: []const u8,
-    created: Date,
+    created: []const u8,
     read_time: []const u8,
     slug: []const u8,
     style: []const u8,
@@ -90,12 +93,7 @@ const FrontMatter = struct {
                 front_matter.style = field.content;
             } else if (areStringsEqual(field.name, "created")) {
                 // yyyy-mm-dd
-                front_matter.created.year = std.fmt.parseInt(u32, field.content[0..4], 0) catch 0;
-                front_matter.created.month = std.fmt.parseInt(u8, field.content[5..7], 0) catch 0;
-                front_matter.created.day = std.fmt.parseInt(u8, field.content[8..], 0) catch 0;
-                if (front_matter.created.year == 0 or front_matter.created.month == 0 or front_matter.created.day == 0) {
-                    @panic("Wrong format for created field, use yyyy-mm-dd");
-                }
+                front_matter.created = field.content;
             } else {
                 std.debug.print("Unrecognized field.name : {s}\n", .{field.name});
             }
@@ -105,7 +103,7 @@ const FrontMatter = struct {
         return front_matter;
     }
     pub fn compile(self:*FrontMatter,allocator:Allocator) []u8{
-        return std.fmt.allocPrint(allocator, " <head> <title>{s}</title> <meta property=\"og:type\" content=\"website\"> <meta property=\"og:url\" content=\"https://beppvis.works/blogs/{s}\"> <meta property=\"og:title\" content=\"{s}\"> <meta property=\"og:description\" content=\"{s}\"> <meta property=\"og:image\" content=\"{s}\"> <meta property=\"twitter:title\" content=\"{s}\"> <meta property=\"twitter:description\" content=\"{s}\"> <meta property=\"twitter:image\" content=\"{s}\"> <meta property=\"twitter:url\" content=\"https://beppvis.works/blogs/{s}\"> </head>",.{self.title,self.slug,self.title,self.description,self.image,self.title,self.description,self.image,self.slug}) catch @panic("Allocation Error: Front Matter compilation allocation failed");
+        return std.fmt.allocPrint(allocator, header_format,.{self.title,self.slug,self.title,self.description,self.image,self.title,self.description,self.image,self.slug,self.title,self.created,self.read_time,self.author}) catch @panic("Allocation Error: Front Matter compilation allocation failed");
     }
 };
 
@@ -156,7 +154,7 @@ pub const Block = struct {
     content: []u8,
 };
 
-pub fn blockSplitter(file_content: []u8, content_size: usize, allocator: Allocator) void {
+pub fn blockSplitter(file_content: []u8, content_size: usize, allocator: Allocator) []u8{
     var self: Scanner = .{
         .pos = 0,
         .source = file_content,
@@ -192,11 +190,11 @@ pub fn blockSplitter(file_content: []u8, content_size: usize, allocator: Allocat
                     }
                 }
                 const start = self.pos;
-                while (self.advance() != '\n') {}
+                while (self.peek() != '\n') {_=self.advance();}
                 if (count == 1) { // H1
                     page.append(allocator, .{
                         .content = "",
-                        .head = self.source[start .. self.pos - 1], // ignoring the new line
+                        .head = self.source[start .. self.pos], // ignoring the new line
                         .type = .heading,
                     }) catch unreachable;
                 } else if (count == 2) { // H2 -> section
@@ -207,7 +205,7 @@ pub fn blockSplitter(file_content: []u8, content_size: usize, allocator: Allocat
                     block_start = self.pos + 1;
                     page.append(allocator, .{
                         .content = self.source[self.pos..],
-                        .head = self.source[start .. self.pos - 1], //ignoring the new line
+                        .head = self.source[start .. self.pos ], //ignoring the new line
                         .type = .section,
                     }) catch unreachable;
                 }
@@ -223,12 +221,13 @@ pub fn blockSplitter(file_content: []u8, content_size: usize, allocator: Allocat
     }
 
     var compiled_page = pageGenerator(page, allocator);
-    defer allocator.free(compiled_page);
     const compiled_front_matter = front_matter.compile(allocator) ;
     defer allocator.free(compiled_front_matter);
     compiled_page = std.mem.concat(allocator, u8, &.{compiled_front_matter,compiled_page}) catch unreachable;
+    compiled_page = std.mem.concat(allocator, u8, &.{compiled_page,"</article></body>"}) catch unreachable;
     std.debug.print("Compiled page: {s}", .{compiled_page});
     defer page.deinit(allocator);
+    return compiled_page;
 }
 
 
@@ -240,6 +239,9 @@ pub fn compileSection(block: Block, allocator: Allocator) []u8 {
         .size = block.content.len,
     };
     var out: []u8 = "";
+
+
+
     while (!self.isAtEnd()) {
         const char = self.advance();
         switch (char) {
@@ -366,7 +368,33 @@ pub fn compileSection(block: Block, allocator: Allocator) []u8 {
             },
         }
     }
-    return out;
+
+    self = .{
+        .pos = 0,
+        .size = out.len,
+        .source = out,
+    };
+    var out_with_para:[] u8= "";
+    var para_start = self.pos;
+    while (!self.isAtEnd()) {
+        if (self.advance() == '\n'){
+            para_start = self.pos;
+            while (self.peek() != '\n' and !self.isAtEnd()){
+                _ = self.advance();
+            }
+            if (self.peek() == '\n'){
+                if (self.pos-para_start+1 <= 2 ){
+                    out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,self.source[para_start..self.pos]}) catch unreachable;
+                    continue;
+                }
+                out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,"<p>\n"}) catch unreachable;
+                out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,self.source[para_start..self.pos]}) catch unreachable;
+                out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,"\n</p>\n"}) catch unreachable;
+            }
+        }
+    }
+
+    return out_with_para;
 }
 
 pub fn pageGenerator(page: std.ArrayList(Block), allocator: Allocator) []u8 {
@@ -374,12 +402,17 @@ pub fn pageGenerator(page: std.ArrayList(Block), allocator: Allocator) []u8 {
     for (page.items) |block| {
         switch (block.type) {
             .heading => {
-                const header = std.fmt.allocPrint(allocator, "<h1>{s}</h1>", .{block.head}) catch unreachable;
+                const header = std.fmt.allocPrint(allocator, "<h1>{s}</h1>\n", .{block.head}) catch unreachable;
                 out = std.mem.concat(allocator, u8, &.{ out, header }) catch unreachable;
             },
             .section => {
                 const compiled_content = compileSection(block, allocator);
+                out = std.mem.concat(allocator, u8, &.{ out, "<section>\n"}) catch unreachable;
+                const header = std.fmt.allocPrint(allocator, "<h2>{s}</h2>\n", .{block.head}) catch unreachable;
+                out = std.mem.concat(allocator, u8, &.{ out, header}) catch unreachable;
+
                 out = std.mem.concat(allocator, u8, &.{ out, compiled_content }) catch unreachable;
+                out = std.mem.concat(allocator, u8, &.{ out, "</section>\n"}) catch unreachable;
             },
         }
     }
