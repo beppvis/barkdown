@@ -20,13 +20,8 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nunc purus  odio, rutru
 
 [A link to google](https://www.google.com)
 Maecenas congue facilisis lacus. Nam[^yes I am side note kun] eget facilisis tortor. Donec  porttitor porta volutpat. Nam vestibulum viverra interdum. Orci varius  natoque penatibus et magnis dis parturient montes, nascetur ridiculus  mus. Nulla luctus dui at euismod fermentum. Sed accumsan varius dolor ut aliquet. Nunc eget felis leo. Interdum et malesuada fames ac ante ipsum primis in faucibus. Donec nulla erat, malesuada non auctor malesuada,  porta a orci.rient montes, nascetur ridiculus  mus. Nulla luctus dui at euismod fermentum. Sed accumsan varius dolor ut aliquet. Nunc eget felis leo. 
-An incomplete code block
-``
-kasjdkasj
-``
-
 
 A complete code block
 ```
-some code for the homies :) 
+some code for the homies :)
 ```

@@ -25,32 +25,16 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nunc purus  odio, rutru
 </section>
 <section>
 <h2>Another super awesome section</h2>
-<p>
-<figure class="fullwidth"><img alt="full Client server" src="./Attachments/figure.svg"></figure>
-</p>
-<p>
+![full Client server](./Attachments/figure.svg)<p>
 <a href="https://www.google.com">A link to google</a>
 </p>
 <p>
 Maecenas congue facilisis lacus. Nam<label for="Nam" class="margin-toggle sidenote-number"> </label> <input type="checkbox" id="Nam" class="margin-toggle"/> <span class="sidenote"> yes I am side note kun </span>
 </p>
 <p>
-An incomplete code block
-</p>
-<p>
-``
-</p>
-<p>
-kasjdkasj
-</p>
-<p>
-``
-</p>
-<p>
 A complete code block
 </p>
-<p>
-<pre><code>some code for the homies :) </code></pre>
-</p>
-</section>
+```
+some code for the homies :)
+```</section>
 </article></body>

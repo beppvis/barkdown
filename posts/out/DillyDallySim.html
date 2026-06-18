@@ -1,0 +1,35 @@
+ <head>
+<title>Dilly Dally Simulator</title>
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://beppvis.works/blogs/dilly-dally-sim ">
+<meta property="og:title" content="Dilly Dally Simulator">
+<meta property="og:description" content="A multiplayer RTS game">
+<meta property="og:image" content="xxx.png">
+<meta property="twitter:title" content="Dilly Dally Simulator">
+<meta property="twitter:description" content="A multiplayer RTS game">
+<meta property="twitter:image" content="xxx.png">
+<meta property="twitter:url" content="https://beppvis.works/blogs/dilly-dally-sim ">
+</head>
+<body>
+<article>
+<h1>Dilly Dally Simulator</h1>
+<div class="header-info"> 
+<subtitle>2026-06-17 ◦ xx mins </subtitle> 
+<subtitle>by John Smith</subtitle>
+</div>
+<section>
+<h2>Networking</h2>
+here is what I am thinking for a game networks server Player sends a join request , server in turn accept/decline ,if accepted then it will send a message with a UID for that player. Then after this the server will now send the players inside the game player_info containing {Player_id, player_position} so a player recieving this, check if it has the given player_id in its local game . if not it will create a player and put it in its position. Now if a player exists, then it interpolates between old and new positions. if player disconnects, then the server is send the message dissconnect player , and then with the player id.</section>
+<section>
+<h2>Problems</h2>
+<p>
+I want to send all of this as byte, but then how would I diffenritae between things. I got the idea from <a href="https:www.tigerbeetle.com">tigerbeetle</a>
+</p>
+             <p>
+             <ul>
+                 <li> Hello </li>
+                 <li> World</li>
+             </ul>
+             </p>
+</section>
+</article></body>

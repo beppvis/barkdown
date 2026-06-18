@@ -1,10 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const full_width_image_format = 
- \\<figure class="fullwidth">
- \\ <img alt="{s}" src="{s}">
- \\</figure>
-;
+const full_width_image_format = "<figure class=\"fullwidth\"><img alt=\"{s}\" src=\"{s}\"></figure>\n";
 const image_format = "<figure><img alt=\"{s}\" src=\"{s}\"></figure>\n";
 const header_format = " <head>\n<title>{s}</title>\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:url\" content=\"https://beppvis.works/blogs/{s}\">\n<meta property=\"og:title\" content=\"{s}\">\n<meta property=\"og:description\" content=\"{s}\">\n<meta property=\"og:image\" content=\"{s}\">\n<meta property=\"twitter:title\" content=\"{s}\">\n<meta property=\"twitter:description\" content=\"{s}\">\n<meta property=\"twitter:image\" content=\"{s}\">\n<meta property=\"twitter:url\" content=\"https://beppvis.works/blogs/{s}\">\n</head>\n<body>\n<article>\n<h1>{s}</h1>\n<div class=\"header-info\"> \n<subtitle>{s} ◦ {s} </subtitle> \n<subtitle>by {s}</subtitle>\n</div>\n";
 
@@ -252,19 +248,42 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
     while (!self.isAtEnd()) {
         const char = self.advance();
         switch (char) {
-            '[' => {
-                const start = self.pos-2;
-                if (self.pos > 0 and self.source[self.pos-2]=='!'){
-                    while (!self.isAtEnd() ){
-                        const c = self.advance();
-                        if (c == '\n' or c == ')'){
-                            out = std.mem.concat(allocator, u8, &.{out ,self.source[start..self.pos]}) catch unreachable;
-                            break;
-                        } 
+            '`' => {
+                var count: u8 = 1;
+                var start = self.pos - 1;
+                while (self.peek() != '\n' and !self.isAtEnd()) {
+                    if (self.advance() == '`') {
+                        count += 1;
+                    } else {
+                        count = 0;
                     }
+                    if (count == 3) break;
+                }
+                if (count != 3) {
+                    out = std.mem.concat(allocator, u8, &.{ out, self.source[start..self.pos] }) catch unreachable;
+                    continue;
+                }
+                // it is a code block
+                start = self.pos + 1;
+
+                while (!self.isAtEnd()) {
+                    if (self.advance() == '`') {
+                        count += 1;
+                    } else {
+                        count = 0;
+                    }
+                    if (count == 3) break;
+                }
+                if (count != 3) {
+                    out = std.mem.concat(allocator, u8, &.{ out, self.source[start..self.pos] }) catch unreachable;
                     continue;
                 }
 
+                const end = self.pos - 4;
+                const code_block = std.fmt.allocPrint(allocator, "<pre><code>{s}</code></pre>", .{self.source[start..end]}) catch unreachable;
+                out = std.mem.concat(allocator, u8, &.{ out, code_block }) catch unreachable;
+            },
+            '[' => {
                 if (self.peek() != '^' ) {
                     // its a link 
                     const link_title_start = self.pos;
@@ -310,62 +329,9 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
                 const side_note = std.fmt.allocPrint(allocator, "<label for=\"{s}\" class=\"margin-toggle sidenote-number\"> </label> <input type=\"checkbox\" id=\"{s}\" class=\"margin-toggle\"/> <span class=\"sidenote\"> {s} </span>", .{side_note_label,side_note_label,self.source[side_note_start..side_note_stop]}) catch unreachable;
 
                 out = std.mem.concat(allocator, u8, &.{ out, side_note}) catch unreachable;
-            },
-            else => {
-                out = std.mem.concat(allocator, u8, &.{ out, &.{char} }) catch unreachable;
-            },
-
-        }
-    }
 
 
 
-    const out_with_para:[] u8= compileWithParagraphTag(out,allocator);
-
-    self = .{
-        .pos = 0,
-        .size = out_with_para.len,
-        .source = out_with_para,
-    };
-    out = "";
-
-    while (!self.isAtEnd()) {
-        const char = self.advance();
-        switch (char) {
-            '`' => {
-                var count: u8 = 1;
-                var start = self.pos - 1;
-                while (self.peek() != '\n' and !self.isAtEnd()) {
-                    if (self.advance() == '`') {
-                        count += 1;
-                    } else {
-                        count = 0;
-                    }
-                    if (count == 3) break;
-                }
-                if (count != 3) {
-                    out = std.mem.concat(allocator, u8, &.{ out, self.source[start..self.pos] }) catch unreachable;
-                    continue;
-                }
-                // it is a code block
-                start = self.pos + 1;
-
-                while (!self.isAtEnd()) {
-                    if (self.advance() == '`') {
-                        count += 1;
-                    } else {
-                        count = 0;
-                    }
-                    if (count == 3) break;
-                }
-                if (count != 3) {
-                    out = std.mem.concat(allocator, u8, &.{ out, self.source[start..self.pos] }) catch unreachable;
-                    continue;
-                }
-
-                const end = self.pos - 4;
-                const code_block = std.fmt.allocPrint(allocator, "<pre><code>{s}</code></pre>", .{self.source[start..end]}) catch unreachable;
-                out = std.mem.concat(allocator, u8, &.{ out, code_block }) catch unreachable;
             },
             '!' => {
                 if (self.peek() != '[') {
@@ -384,7 +350,6 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
                         image_source_start = self.pos;
                     } else if (c == ')') {
                         image_source_end = self.pos - 1;
-                        break;
                     }
                 }
                 if (alt_text_start > alt_text_end or image_source_start > image_source_end or image_source_end > self.pos){
@@ -407,24 +372,34 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
         }
     }
 
-
-    return out;
-}
-pub fn isCodeBlock(scanner: *Scanner) bool{
-    var count:u8 = 0;
-    while (!scanner.isAtEnd()) {
-        if (scanner.advance() == '`') {
-            count += 1;
-        } else {
-            count = 0;
+    self = .{
+        .pos = 0,
+        .size = out.len,
+        .source = out,
+    };
+    var out_with_para:[] u8= "";
+    var para_start = self.pos;
+    while (!self.isAtEnd()) {
+        if (self.advance() == '\n'){
+            para_start = self.pos;
+            while (self.peek() != '\n' and !self.isAtEnd()){
+                _ = self.advance();
+            }
+            if (self.peek() == '\n'){
+                if (self.pos-para_start+1 <= 2 ){
+                    out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,self.source[para_start..self.pos]}) catch unreachable;
+                    continue;
+                }
+                out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,"<p>\n"}) catch unreachable;
+                out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,self.source[para_start..self.pos]}) catch unreachable;
+                out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,"\n</p>\n"}) catch unreachable;
+            }
         }
-        if (count == 3) break;
     }
-    if (count != 3) {
-        return false;
-    }
-    return true;
+
+    return out_with_para;
 }
+
 pub fn compileWithParagraphTag(content:[]u8,allocator:Allocator) []u8{
     var scanner:Scanner = .{
         .pos = 0,
@@ -433,39 +408,11 @@ pub fn compileWithParagraphTag(content:[]u8,allocator:Allocator) []u8{
     };
     var out_with_para:[] u8= "";
     var para_start = scanner.pos;
-    var character:u8 =' ';
     while (!scanner.isAtEnd()) {
-        character = scanner.advance();
-        if (character == '\n'){
+        if (scanner.advance() == '\n'){
             para_start = scanner.pos;
-            var is_para = true; 
             while (scanner.peek() != '\n' and !scanner.isAtEnd()){
-                const char = scanner.advance();
-                if (char == '`'){
-                    const pos = scanner.pos;
-                    if(isCodeBlock(&scanner)){
-                        out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,scanner.source[para_start..scanner.pos]}) catch unreachable;
-                        is_para = false;
-                        break;
-                    }
-                    else{
-                        scanner.pos = pos;
-                    }
-                }
-                else if (char == '!' and scanner.peek() == '['){
-                    //const start = scanner.pos;
-                    std.debug.print("Found an image in middle of para\n", .{});
-                    while (!scanner.isAtEnd() ){
-                        const c = scanner.advance();
-                        if (c == '\n' or c == ')'){
-                            out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,scanner.source[para_start+1..scanner.pos]}) catch unreachable;
-                            is_para = false;
-                            break;
-                        } 
-                    }
-                }
             }
-            if (!is_para) continue;
             if (scanner.peek() == '\n'){
                 if (scanner.pos-para_start+1 <= 2 ){
                     out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,scanner.source[para_start..scanner.pos]}) catch unreachable;
@@ -476,12 +423,8 @@ pub fn compileWithParagraphTag(content:[]u8,allocator:Allocator) []u8{
                 out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,"\n</p>\n"}) catch unreachable;
             }
         }
-        else {
-            out_with_para= std.mem.concat(allocator, u8, &.{ out_with_para, &.{character} }) catch unreachable;
-        }
     }
 
-    return out_with_para;
 
 }
 
