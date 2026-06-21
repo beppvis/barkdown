@@ -29,15 +29,7 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 }
-//Front matter
-//title: An Example Using the Tufte Style
-//author: beppvis
-//description: aksdjakdjskasj
-//image: xxx.png
-//created: 2026-06-16
-//read_time: 25 mins
-//slug: an-example-using-the-tufte-style
-//style: static/tufte.css
+
 const Date = struct {
     day: u8,
     month: u8,
@@ -67,6 +59,16 @@ const Field = struct {
         return field;
     }
 };
+
+//Front matter
+//title: An Example Using the Tufte Style
+//author: beppvis
+//description: aksdjakdjskasj
+//image: xxx.png
+//created: 2026-06-16
+//read_time: 25 mins
+//slug: an-example-using-the-tufte-style
+//style: static/tufte.css
 const FrontMatter = struct {
     title: []const u8 = "",
     author: []const u8 = "",
