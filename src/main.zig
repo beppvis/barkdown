@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const full_width_image_format = 
  \\<figure class="fullwidth">
@@ -79,6 +80,7 @@ const FrontMatter = struct {
     slug: []const u8="",
     style: []const u8="",
     pub fn parseFrontMatter(front_matter_block: []u8) FrontMatter {
+        assert(front_matter_block.len > 0); 
         var start_field: usize = 0;
         var end_field: usize = 0;
         var pos: usize = 0;
