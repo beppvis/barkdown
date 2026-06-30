@@ -7,7 +7,7 @@ const full_width_image_format =
  \\</figure>
 ;
 const image_format = "<figure><img alt=\"{s}\" src=\"{s}\"></figure>\n";
-const header_format = " <head>\n<title>{s}</title>\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:url\" content=\"https://beppvis.works/blogs/{s}\">\n<meta property=\"og:title\" content=\"{s}\">\n<meta property=\"og:description\" content=\"{s}\">\n<meta property=\"og:image\" content=\"{s}\">\n<meta property=\"twitter:title\" content=\"{s}\">\n<meta property=\"twitter:description\" content=\"{s}\">\n<meta property=\"twitter:image\" content=\"{s}\">\n<meta property=\"twitter:url\" content=\"https://beppvis.works/blogs/{s}\">\n</head>\n<body>\n<article>\n<h1>{s}</h1>\n<div class=\"header-info\"> \n<subtitle>{s} ◦ {s} </subtitle> \n<subtitle>by {s}</subtitle>\n</div>\n";
+const header_format = "<head>\n<title>{s}</title>\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:url\" content=\"https://beppvis.works/blogs/{s}\">\n<meta property=\"og:title\" content=\"{s}\">\n<meta property=\"og:description\" content=\"{s}\">\n<meta property=\"og:image\" content=\"{s}\">\n<meta property=\"twitter:title\" content=\"{s}\">\n<meta property=\"twitter:description\" content=\"{s}\">\n<meta property=\"twitter:image\" content=\"{s}\">\n<meta property=\"twitter:url\" content=\"https://beppvis.works/blogs/{s}\">\n</head>\n<body>\n<article>\n<h1>{s}</h1>\n<div class=\"header-info\"> \n<subtitle>{s} ◦ {s} </subtitle> \n<subtitle>by {s}</subtitle>\n</div>\n";
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
