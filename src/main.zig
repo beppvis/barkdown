@@ -1,50 +1,54 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const full_width_image_format = 
- \\<figure class="fullwidth">
- \\ <img alt="{s}" src="{s}">
- \\</figure>
-;
-const image_format = "<figure><img alt=\"{s}\" src=\"{s}\"></figure>\n";
-const header_format = "<head>\n<title>{s}</title>\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:url\" content=\"https://beppvis.works/blogs/{s}\">\n<meta property=\"og:title\" content=\"{s}\">\n<meta property=\"og:description\" content=\"{s}\">\n<meta property=\"og:image\" content=\"{s}\">\n<meta property=\"twitter:title\" content=\"{s}\">\n<meta property=\"twitter:description\" content=\"{s}\">\n<meta property=\"twitter:image\" content=\"{s}\">\n<meta property=\"twitter:url\" content=\"https://beppvis.works/blogs/{s}\">\n</head>\n<body>\n<article>\n<h1>{s}</h1>\n<div class=\"header-info\"> \n<subtitle>{s} ◦ {s} </subtitle> \n<subtitle>by {s}</subtitle>\n</div>\n";
+const eql = std.mem.eql;
+
+// template
+const template = @import("template.zig");
+const full_width_image_format = template.full_width_image_format;
+const image_format = template.image_format;
+const header_format = template.header_format;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
-    const arena_allocator = init.arena.allocator();
+    const gpa_allocator = init.gpa;
     const posts_dir = try std.Io.Dir.openDir(std.Io.Dir.cwd(), io, "./posts", .{.iterate = true});
     var posts_iterator = posts_dir.iterate();
     while (try posts_iterator.next(io))|entry|{
         if (entry.kind == .file){
             std.debug.print("file found in posts : {s}\n", .{entry.name});
-            const file_contents = try posts_dir.readFileAlloc(io, entry.name, arena_allocator, .unlimited);
-            defer arena_allocator.free(file_contents);
-            const blocks = blockSplitter(file_contents, file_contents.len, arena_allocator);
+            const file_contents = try posts_dir.readFileAlloc(io, entry.name, gpa_allocator, .unlimited);
+            defer gpa_allocator.free(file_contents);
+
+            const blocks = blockSplitter(file_contents, file_contents.len, gpa_allocator);
             var page = blocks.page;
+            defer page.deinit(gpa_allocator);
+
             const front_matter = blocks.front_matter;
-            defer page.deinit(arena_allocator);
-            const page_content = pageCompiler(page, front_matter, arena_allocator);
-            defer arena_allocator.free(page_content);
-            try posts_dir.writeFile(io,.{.data = page_content,.sub_path = try std.fmt.allocPrint(arena_allocator,"./out/{s}.html",.{entry.name[0..entry.name.len-3]}),.flags = .{}});
+            const page_content = pageCompiler(page, front_matter, gpa_allocator);
+            defer gpa_allocator.free(page_content);
+            const out_file_path = outFilePath(gpa_allocator,entry.name[0..entry.name.len-3]);
+            defer gpa_allocator.free(out_file_path);
+            try posts_dir.writeFile(io,.{.data = page_content,.sub_path = out_file_path,.flags = .{}});
+
             std.debug.print("file compiled : {s}\n", .{entry.name});
         }
     }
 }
 
-const Date = struct {
-    day: u8,
-    month: u8,
-    year: u32,
-};
-pub fn areStringsEqual(str_a: []const u8, str_b: []const u8) bool {
-    if (str_a.len != str_b.len) return false;
-    for (0..str_a.len) |i| {
-        if (str_a[i] != str_b[i]) {
-            return false;
-        }
-    }
-    return true;
+
+pub fn outFilePath(allocator:Allocator,file_name:[]const u8) []const u8{
+    return std.fmt.allocPrint(allocator,"./out/{s}.html",.{file_name}) catch unreachable;
 }
+// this assumes that a is heap allocated
+pub fn concatAndFree(allocator:Allocator,a:[]const u8,b:[]const u8) ![]u8{
+    const out = try std.mem.concat(allocator, u8, &.{a,b}) ;
+    errdefer allocator.free(out);
+    allocator.free(a);
+    return out;
+}
+
+
 const Field = struct {
     name: []u8,
     content: []u8,
@@ -98,21 +102,21 @@ const FrontMatter = struct {
                 std.debug.print("Format error: {s} \n", .{field_line});
                 continue;
             }
-            if (areStringsEqual(field.name, "title")) {
+            if (eql(u8,field.name, "title")) {
                 front_matter.title = field.content;
-            } else if (areStringsEqual(field.name, "author")) {
+            } else if (eql(u8,field.name, "author")) {
                 front_matter.author = field.content;
-            } else if (areStringsEqual(field.name, "description")) {
+            } else if (eql(u8,field.name, "description")) {
                 front_matter.description = field.content;
-            } else if (areStringsEqual(field.name, "image")) {
+            } else if (eql(u8,field.name, "image")) {
                 front_matter.image = field.content;
-            } else if (areStringsEqual(field.name, "read_time")) {
+            } else if (eql(u8,field.name, "read_time")) {
                 front_matter.read_time = field.content;
-            } else if (areStringsEqual(field.name, "slug")) {
+            } else if (eql(u8,field.name, "slug")) {
                 front_matter.slug = field.content;
-            } else if (areStringsEqual(field.name, "style")) {
+            } else if (eql(u8,field.name, "style")) {
                 front_matter.style = field.content;
-            } else if (areStringsEqual(field.name, "created")) {
+            } else if (eql(u8,field.name, "created")) {
                 // yyyy-mm-dd
                 front_matter.created = field.content;
             } else {
@@ -179,7 +183,9 @@ pub const Block = struct {
     page: std.ArrayList(ContentBlock),
 };
 
-pub fn blockSplitter(file_content: []u8, content_size: usize, allocator: Allocator) Block{
+// Split markdown into front matter
+// and blocks
+pub fn blockSplitter(file_content: []u8, content_size: usize, allocator: Allocator) Block {
     var self: Scanner = .{
         .pos = 0,
         .source = file_content,
@@ -262,7 +268,7 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
                     while (!self.isAtEnd() ){
                         const c = self.advance();
                         if (c == '\n' or c == ')'){
-                            out = std.mem.concat(allocator, u8, &.{out ,self.source[start..self.pos]}) catch unreachable;
+                            out = concatAndFree(allocator, out, self.source[start..self.pos]) catch unreachable;
                             break;
                         } 
                     }
@@ -288,8 +294,9 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
                     if (link_source_start > link_source_end or link_title_start > link_title_stop or link_source_end > self.pos) @panic("Fomat Error: Link format is wrong");
                     const link = std.fmt.allocPrint(allocator, "<a href=\"{s}\">{s}</a>", 
                             .{self.source[link_source_start..link_source_end], self.source[link_title_start..link_title_stop]}) catch @panic("Format Error : Link alloc print failed");
+                    defer allocator.free(link);
 
-                    out = std.mem.concat(allocator, u8, &.{ out, link}) catch unreachable;
+                    out = concatAndFree(allocator, out, link) catch unreachable;
                     continue;
                 }
                 // It is a side note
@@ -313,10 +320,11 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
 
                 const side_note = std.fmt.allocPrint(allocator, "<label for=\"{s}\" class=\"margin-toggle sidenote-number\"> </label> <input type=\"checkbox\" id=\"{s}\" class=\"margin-toggle\"/> <span class=\"sidenote\"> {s} </span>", .{side_note_label,side_note_label,self.source[side_note_start..side_note_stop]}) catch unreachable;
 
-                out = std.mem.concat(allocator, u8, &.{ out, side_note}) catch unreachable;
+                defer allocator.free(side_note);
+                out = concatAndFree(allocator, out, side_note) catch unreachable;
             },
             else => {
-                out = std.mem.concat(allocator, u8, &.{ out, &.{char} }) catch unreachable;
+                out = concatAndFree(allocator, out, &.{char} ) catch unreachable;
             },
 
         }
@@ -325,12 +333,14 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
 
 
     const out_with_para:[] u8= compileWithParagraphTag(out,allocator);
+    defer allocator.free(out_with_para);
 
     self = .{
         .pos = 0,
         .size = out_with_para.len,
         .source = out_with_para,
     };
+    allocator.free(out);
     out = "";
 
     while (!self.isAtEnd()) {
@@ -348,7 +358,7 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
                     if (count == 3) break;
                 }
                 if (count != 3) {
-                    out = std.mem.concat(allocator, u8, &.{ out, self.source[start..self.pos] }) catch unreachable;
+                    out = concatAndFree(allocator, out, self.source[start..self.pos] ) catch unreachable;
                     continue;
                 }
                 // it is a code block
@@ -363,17 +373,18 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
                     if (count == 3) break;
                 }
                 if (count != 3) {
-                    out = std.mem.concat(allocator, u8, &.{ out, self.source[start..self.pos] }) catch unreachable;
+                    out = concatAndFree(allocator,  out, self.source[start..self.pos]) catch unreachable;
                     continue;
                 }
 
                 const end = self.pos - 4;
                 const code_block = std.fmt.allocPrint(allocator, "<pre><code>{s}</code></pre>", .{self.source[start..end]}) catch unreachable;
-                out = std.mem.concat(allocator, u8, &.{ out, code_block }) catch unreachable;
+                defer allocator.free(code_block);
+                out = concatAndFree(allocator,  out, code_block ) catch unreachable;
             },
             '!' => {
                 if (self.peek() != '[') {
-                    out = std.mem.concat(allocator, u8, &.{ out, &.{char} }) catch unreachable;
+                    out = concatAndFree(allocator,  out, &.{char} ) catch unreachable;
                     continue;
                 }
                 const alt_text_start = self.pos + 1;
@@ -394,19 +405,24 @@ pub fn compileSection(block: ContentBlock, allocator: Allocator) []u8 {
                 if (alt_text_start > alt_text_end or image_source_start > image_source_end or image_source_end > self.pos){
                     @panic("Format Error: Image link format is wrong");
                 }
-                if ((alt_text_end - alt_text_start + 1) > 4 and areStringsEqual("full", self.source[alt_text_start .. alt_text_start + 4])) {
+
+
+                if ((alt_text_end - alt_text_start + 1) > 4 and eql(u8,"full", self.source[alt_text_start .. alt_text_start + 4])) {
                     const image = std.fmt.allocPrint(allocator, full_width_image_format, 
                             .{ self.source[alt_text_start..alt_text_end], 
                             self.source[image_source_start..image_source_end] }) catch @panic("Format Error: image alloc print failed");
-                    out = std.mem.concat(allocator, u8, &.{ out, image }) catch unreachable;
+                    defer allocator.free(image);
+                    out = concatAndFree(allocator, out, image ) catch unreachable;
                 } else {
                     const image = std.fmt.allocPrint(allocator, image_format, 
                     .{ self.source[alt_text_start..alt_text_end], self.source[image_source_start..image_source_end] }) catch @panic("Format Error: image alloc print failed");
-                    out = std.mem.concat(allocator, u8, &.{ out, image }) catch unreachable;
+                    defer allocator.free(image);
+                    out = concatAndFree(allocator,  out, image ) catch unreachable;
                 }
+
             },
             else => {
-                out = std.mem.concat(allocator, u8, &.{ out, &.{char} }) catch unreachable;
+                out = concatAndFree(allocator, out, &.{char}) catch unreachable;
             },
         }
     }
@@ -448,7 +464,7 @@ pub fn compileWithParagraphTag(content:[]u8,allocator:Allocator) []u8{
                 if (char == '`'){
                     const pos = scanner.pos;
                     if(isCodeBlock(&scanner)){
-                        out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,scanner.source[para_start..scanner.pos]}) catch unreachable;
+                        out_with_para = concatAndFree(allocator,out_with_para,scanner.source[para_start..scanner.pos]) catch unreachable;
                         is_para = false;
                         break;
                     }
@@ -462,7 +478,7 @@ pub fn compileWithParagraphTag(content:[]u8,allocator:Allocator) []u8{
                     while (!scanner.isAtEnd() ){
                         const c = scanner.advance();
                         if (c == '\n' or c == ')'){
-                            out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,scanner.source[para_start+1..scanner.pos]}) catch unreachable;
+                            out_with_para = concatAndFree(allocator, out_with_para,scanner.source[para_start+1..scanner.pos]) catch unreachable;
                             is_para = false;
                             break;
                         } 
@@ -472,16 +488,16 @@ pub fn compileWithParagraphTag(content:[]u8,allocator:Allocator) []u8{
             if (!is_para) continue;
             if (scanner.peek() == '\n'){
                 if (scanner.pos-para_start+1 <= 2 ){
-                    out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,scanner.source[para_start..scanner.pos]}) catch unreachable;
+                    out_with_para = concatAndFree(allocator, out_with_para,scanner.source[para_start..scanner.pos]) catch unreachable;
                     continue;
                 }
-                out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,"<p>\n"}) catch unreachable;
-                out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,scanner.source[para_start..scanner.pos]}) catch unreachable;
-                out_with_para = std.mem.concat(allocator, u8, &.{out_with_para,"\n</p>\n"}) catch unreachable;
+                out_with_para = concatAndFree(allocator, out_with_para,"<p>\n") catch unreachable;
+                out_with_para = concatAndFree(allocator, out_with_para,scanner.source[para_start..scanner.pos]) catch unreachable;
+                out_with_para = concatAndFree(allocator, out_with_para,"\n</p>\n") catch unreachable;
             }
         }
         else {
-            out_with_para= std.mem.concat(allocator, u8, &.{ out_with_para, &.{character} }) catch unreachable;
+            out_with_para= concatAndFree(allocator, out_with_para, &.{character} ) catch unreachable;
         }
     }
 
@@ -497,23 +513,28 @@ pub fn pageCompiler(page: std.ArrayList(ContentBlock), front_matter:FrontMatter,
         switch (block.type) {
             .heading => {
                 const header = std.fmt.allocPrint(allocator, "<h1>{s}</h1>\n", .{block.head}) catch unreachable;
-                out = std.mem.concat(allocator, u8, &.{ out, header }) catch unreachable;
+                defer allocator.free(header);
+
+                out = concatAndFree(allocator, out, header ) catch unreachable;
             },
             .section => {
                 const compiled_content = compileSection(block, allocator);
-                out = std.mem.concat(allocator, u8, &.{ out, "<section>\n"}) catch unreachable;
+                defer allocator.free(compiled_content);
+                out = concatAndFree(allocator,  out, "<section>\n") catch unreachable;
                 const header = std.fmt.allocPrint(allocator, "<h2>{s}</h2>\n", .{block.head}) catch unreachable;
-                out = std.mem.concat(allocator, u8, &.{ out, header}) catch unreachable;
+                defer allocator.free(header);
 
-                out = std.mem.concat(allocator, u8, &.{ out, compiled_content }) catch unreachable;
-                out = std.mem.concat(allocator, u8, &.{ out, "</section>\n"}) catch unreachable;
+                out = concatAndFree(allocator,  out, header) catch unreachable;
+                out = concatAndFree(allocator, out, compiled_content ) catch unreachable;
+                out = concatAndFree(allocator, out, "</section>\n") catch unreachable;
             },
         }
     }
-    const compiled_front_matter = front_matter.compile(allocator) ;
-    defer allocator.free(compiled_front_matter);
-    out = std.mem.concat(allocator, u8, &.{compiled_front_matter,out}) catch unreachable;
-    out = std.mem.concat(allocator, u8, &.{out,"</article></body>"}) catch unreachable;
+    const compiled_front_matter:[]u8 = front_matter.compile(allocator) ;
+    const old  = out;
+    out = concatAndFree(allocator, compiled_front_matter,out) catch unreachable;
+    allocator.free(old);
+    out = concatAndFree(allocator, out,"</article></body>") catch unreachable;
 
     return out;
 }
